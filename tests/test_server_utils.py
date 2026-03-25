@@ -97,3 +97,50 @@ def test_load_history_corrupt_file(tmp_path):
     _load_history()  # must not raise
     assert server.jobs == {}
     server.HISTORY_PATH = original_path
+
+
+from fastapi.testclient import TestClient
+from server import app
+
+client = TestClient(app)
+
+
+def test_history_endpoint_returns_list():
+    import server
+    original = dict(server.jobs)
+    server.jobs = {
+        "j1": {
+            "city": "Vigo",
+            "category": "bares",
+            "started_at": "2026-03-25T09:00:00+00:00",
+            "status": "done",
+            "valid_count": 10,
+            "output": "out/vigo_bares_20260325_090000.csv",
+            "lines": [],
+            "proc": None,
+        }
+    }
+    res = client.get("/history")
+    assert res.status_code == 200
+    data = res.json()
+    assert isinstance(data, list)
+    assert data[0]["city"] == "Vigo"
+    assert data[0]["valid_count"] == 10
+    server.jobs = original
+
+
+def test_history_excludes_jobs_without_started_at():
+    import server
+    original = dict(server.jobs)
+    server.jobs = {
+        "j-legacy": {
+            "status": "done",
+            "output": "out/foo.csv",
+            "lines": [],
+            "proc": None,
+        }
+    }
+    res = client.get("/history")
+    assert res.status_code == 200
+    assert res.json() == []
+    server.jobs = original

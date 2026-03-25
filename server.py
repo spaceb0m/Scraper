@@ -195,6 +195,42 @@ async def stop_job(job_id: str) -> dict:
     return {"status": "stopped"}
 
 
+@app.get("/history")
+async def history() -> list:
+    return [
+        {
+            "job_id": jid,
+            "city": j.get("city", ""),
+            "category": j.get("category", ""),
+            "started_at": j.get("started_at", ""),
+            "status": j["status"],
+            "valid_count": j.get("valid_count", 0),
+            "output": j.get("output", ""),
+        }
+        for jid, j in reversed(list(jobs.items()))
+        if j.get("started_at")
+    ]
+
+
+@app.post("/open-folder/{job_id}")
+async def open_folder(job_id: str) -> dict:
+    job = jobs.get(job_id)
+    if not job:
+        return {"error": "not found"}
+    output_path = BASE_DIR / job["output"]
+    system = platform.system()
+    try:
+        if system == "Darwin":
+            subprocess.Popen(["open", "-R", str(output_path)])
+        elif system == "Windows":
+            subprocess.Popen(["explorer", str(output_path.parent)])
+        else:
+            subprocess.Popen(["xdg-open", str(output_path.parent)])
+        return {"status": "ok"}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 @app.get("/download/{job_id}")
 async def download(job_id: str) -> FileResponse:
     job = jobs.get(job_id)
