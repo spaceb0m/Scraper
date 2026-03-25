@@ -2,6 +2,8 @@
 
 Este fichero proporciona contexto completo del proyecto para nuevas sesiones de trabajo.
 
+## Versión actual: 0.2
+
 ## Qué es este proyecto
 
 Scraper de Google Maps en Python + Playwright que extrae datos de negocios (nombre, teléfono, dirección, web, rating, categoría) y los exporta a CSV. Tiene una interfaz web (FastAPI + SSE) para ejecutarlo desde el navegador y ver el log en tiempo real.

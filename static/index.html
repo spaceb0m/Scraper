@@ -78,37 +78,6 @@
     input:focus, select:focus, textarea:focus { border-color: #6366f1; }
     textarea { font-family: "SF Mono", "Fira Code", monospace; font-size: 0.8rem; resize: vertical; }
 
-    /* Zones collapsible section */
-    .zones-toggle {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      cursor: pointer;
-      user-select: none;
-      margin-top: 1.25rem;
-      margin-bottom: 0;
-      font-size: 0.8rem;
-      font-weight: 500;
-      color: #6366f1;
-    }
-    .zones-toggle .arrow { transition: transform 0.2s; font-size: 0.65rem; }
-    .zones-toggle.open .arrow { transform: rotate(90deg); }
-    .zones-panel {
-      display: none;
-      margin-top: 0.75rem;
-      background: #161926;
-      border: 1px solid #2d3148;
-      border-radius: 10px;
-      padding: 1rem;
-    }
-    .zones-panel.open { display: block; }
-    .zones-hint {
-      font-size: 0.72rem;
-      color: #4b5563;
-      margin-bottom: 0.6rem;
-      line-height: 1.5;
-    }
-
     .actions {
       display: flex;
       gap: 0.75rem;
@@ -134,6 +103,8 @@
     #btn-clear:hover { background: #374162; }
     #btn-dl    { background: #10b981; color: #fff; display: none; }
     #btn-dl:hover { background: #059669; }
+    #btn-stop  { background: #7f1d1d; color: #fca5a5; display: none; }
+    #btn-stop:not(:disabled):hover { background: #991b1b; }
 
     .status-badge {
       font-size: 0.75rem;
@@ -145,6 +116,7 @@
     .status-badge.running  { background: #1e3a5f; color: #60a5fa; display: inline-block; }
     .status-badge.done     { background: #064e3b; color: #34d399; display: inline-block; }
     .status-badge.error    { background: #4c1d1d; color: #f87171; display: inline-block; }
+    .status-badge.stopped  { background: #451a03; color: #fdba74; display: inline-block; }
 
     /* Stats bar */
     .stats-bar {
@@ -255,33 +227,15 @@
           Timeout página (ms)
           <input type="number" name="timeout_ms" value="15000" min="1000" />
         </label>
-      </div>
-
-      <!-- Zonas multi-zona -->
-      <div class="zones-toggle" id="zones-toggle">
-        <span class="arrow">▶</span>
-        Cobertura multi-zona (opcional)
-      </div>
-      <div class="zones-panel" id="zones-panel">
-        <p class="zones-hint">
-          Por defecto el scraper captura ~120 resultados del viewport inicial de Google Maps,
-          lo que cubre principalmente el centro de la ciudad. Define una cuadrícula de zonas
-          geográficas para garantizar cobertura completa. Los duplicados entre zonas se eliminan
-          automáticamente.<br><br>
-          Formato: <code>[{"lat": 42.879, "lon": -8.544, "zoom": 14}, …]</code><br>
-          Zoom recomendado: 14–15 (~1–2 km de radio por celda).
-        </p>
         <label>
-          Zonas (JSON)
-          <textarea name="zones" rows="5" placeholder='[
-  {"lat": 42.879, "lon": -8.544, "zoom": 14},
-  {"lat": 42.870, "lon": -8.540, "zoom": 14}
-]'></textarea>
+          Concurrencia
+          <input type="number" name="concurrency" value="3" min="1" max="10" />
         </label>
       </div>
 
       <div class="actions">
         <button type="submit" id="btn-run">▶ Ejecutar</button>
+        <button type="button" id="btn-stop">■ Detener</button>
         <button type="button" id="btn-clear">Limpiar log</button>
         <button type="button" id="btn-dl">↓ Descargar CSV</button>
         <span class="status-badge" id="badge"></span>
@@ -318,17 +272,10 @@
   </div>
 
   <script>
-    // ── Collapsible zones panel ──
-    const zonesToggle = document.getElementById('zones-toggle');
-    const zonesPanel  = document.getElementById('zones-panel');
-    zonesToggle.addEventListener('click', () => {
-      const open = zonesPanel.classList.toggle('open');
-      zonesToggle.classList.toggle('open', open);
-    });
-
     // ── Form & log ──
     const form      = document.getElementById('form');
     const btnRun    = document.getElementById('btn-run');
+    const btnStop   = document.getElementById('btn-stop');
     const btnClear  = document.getElementById('btn-clear');
     const btnDl     = document.getElementById('btn-dl');
     const badge     = document.getElementById('badge');
@@ -344,35 +291,35 @@
 
     let lineNum = 0;
     let es = null;
+    let currentJobId = null;
 
     function levelOf(text) {
       if (text.includes('| ERROR |'))   return 'ERROR';
       if (text.includes('| WARNING |')) return 'WARNING';
       if (text.includes('| DEBUG |'))   return 'DEBUG';
-      if (text.startsWith('──') || text.includes('── Zona') || text.includes('── Resumen')) return 'ZONE';
+      if (text.includes('──')) return 'ZONE';
       if (text.includes('✓ '))          return 'SUCCESS';
       return 'INFO';
     }
 
-    // Parse progress line: "Progreso: X/Y procesados | Z válidos | W errores"
+    // Parsea únicamente líneas de stats acumulativas emitidas por el CLI
     function tryParseProgress(text) {
-      const m = text.match(/Progreso:\s*(\d+)\/(\d+)\s+procesados\s*\|\s*(\d+)\s+válidos\s*\|\s*(\d+)\s+errores/);
-      if (m) {
-        statProcessed.textContent  = m[1];
-        statDiscovered.textContent = m[2];
-        statValid.textContent      = m[3];
-        statErrors.textContent     = m[4];
-      }
-      // Discovery line: "Descubriendo resultados: X encontrados…"
-      const d = text.match(/Descubriendo resultados:\s*(\d+)/);
-      if (d) statDiscovered.textContent = d[1];
-      // Final summary: "discover=X processed=Y valid=Z duplicates=W errors=V"
-      const s = text.match(/discover=(\d+)\s+processed=(\d+)\s+valid=(\d+).*errors=(\d+)/);
+      // Acumulativo tras cada sector: "STATS discovered=X processed=Y valid=Z errors=W"
+      const s = text.match(/STATS discovered=(\d+)\s+processed=(\d+)\s+valid=(\d+)\s+errors=(\d+)/);
       if (s) {
         statDiscovered.textContent = s[1];
         statProcessed.textContent  = s[2];
         statValid.textContent      = s[3];
         statErrors.textContent     = s[4];
+        return;
+      }
+      // Resumen final: "discover=X processed=Y valid=Z ... errors=W"
+      const f = text.match(/discover=(\d+)\s+processed=(\d+)\s+valid=(\d+).*errors=(\d+)/);
+      if (f) {
+        statDiscovered.textContent = f[1];
+        statProcessed.textContent  = f[2];
+        statValid.textContent      = f[3];
+        statErrors.textContent     = f[4];
       }
     }
 
@@ -391,8 +338,11 @@
       badge.className = 'status-badge ' + status;
       badge.textContent =
         status === 'running' ? '● Ejecutando…' :
-        status === 'done'    ? '✓ Completado'  : '✗ Error';
+        status === 'done'    ? '✓ Completado'  :
+        status === 'stopped' ? '■ Detenido'    : '✗ Error';
       badge.style.display = 'inline-block';
+      // Mostrar/ocultar botón Detener
+      btnStop.style.display = status === 'running' ? 'inline-block' : 'none';
     }
 
     function resetStats() {
@@ -406,6 +356,13 @@
       lineCount.textContent = '0 líneas';
     });
 
+    btnStop.addEventListener('click', async () => {
+      if (!currentJobId) return;
+      btnStop.disabled = true;
+      await fetch(`/stop/${currentJobId}`, { method: 'POST' });
+      btnStop.disabled = false;
+    });
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       if (es) { es.close(); es = null; }
@@ -417,12 +374,9 @@
 
       const data = new FormData(form);
 
-      // Remove zones field if empty to avoid sending blank string
-      const zonesVal = data.get('zones')?.trim();
-      if (!zonesVal) data.delete('zones');
-
       const res  = await fetch('/run', { method: 'POST', body: data });
       const { job_id } = await res.json();
+      currentJobId = job_id;
 
       es = new EventSource(`/stream/${job_id}`);
       es.onmessage = (ev) => appendLine(ev.data);
@@ -432,7 +386,7 @@
         const status = ev.data;
         setStatus(status);
         btnRun.disabled = false;
-        if (status === 'done') {
+        if (status === 'done' || status === 'stopped') {
           btnDl.style.display = 'inline-block';
           btnDl.onclick = () => { window.location = `/download/${job_id}`; };
         }

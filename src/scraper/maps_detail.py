@@ -84,6 +84,13 @@ async def _extract_category(page: Page) -> str:
 
 
 async def extract_business_record(page: Page, source_query: str) -> BusinessRecord:
+    # Esperar a que el H1 aparezca antes de intentar leer — Google Maps es una SPA
+    # y domcontentloaded se dispara antes de que el panel de detalle esté renderizado.
+    try:
+        await page.wait_for_selector("h1", timeout=10000)
+    except Exception:  # noqa: BLE001
+        pass  # Si no aparece en 10s, continuamos e intentamos leer lo que haya
+
     name = ""
     heading = page.locator("h1")
     if await heading.count() > 0:

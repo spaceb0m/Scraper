@@ -78,6 +78,19 @@ Concurrencia realista con Playwright (cada context ≈ 200–300 MB RAM):
 
 ---
 
+## Fase 5 — Subdivisión adaptativa de sectores (pendiente)
+
+Cuando un sector se para por heurística (~120 resultados), subdivirlo automáticamente en 4 sub-sectores (cuadrantes) y relanzarlos. Recursivo hasta que todos confirmen fin de lista o se alcance un tamaño mínimo de celda (`min_cell_deg`, e.g. 0.002°).
+
+**Lógica:**
+- En `_process_sector`: si `result.reached_end == False` y `sector.cell_deg > min_cell_deg`, generar 4 sub-sectores (NW, NE, SW, SE) y encolarlos como nuevas tareas
+- Añadir `cell_deg` al dataclass `Sector` para poder subdividir recursivamente
+- Actualizar `build_sector_grid` para aceptar `cell_deg` por sector
+
+**Impacto:** cobertura total garantizada en zonas de alta densidad sin sobre-dividir zonas vacías.
+
+---
+
 ## Verificación end-to-end (al completar todas las fases)
 
 ```bash

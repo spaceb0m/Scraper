@@ -4,7 +4,6 @@ import asyncio
 import sys
 import uuid
 from pathlib import Path
-from typing import Optional
 
 from fastapi import FastAPI, Form
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
@@ -13,7 +12,7 @@ app = FastAPI(title="Google Maps Scraper")
 
 BASE_DIR = Path(__file__).parent
 
-# job_id -> {"lines": [...], "status": "running"|"done"|"error", "output": str}
+# job_id -> {"lines": [...], "status": "running"|"done"|"error"|"stopped", "output": str, "proc": Process|None}
 jobs: dict[str, dict] = {}
 
 
@@ -31,10 +30,10 @@ async def run_scraper(
     max_results: int = Form(0),
     slow_ms: int = Form(250),
     timeout_ms: int = Form(15000),
-    zones: Optional[str] = Form(None),
+    concurrency: int = Form(3),
 ) -> dict:
     job_id = str(uuid.uuid4())
-    jobs[job_id] = {"lines": [], "status": "running", "output": output}
+    jobs[job_id] = {"lines": [], "status": "running", "output": output, "proc": None}
 
     cmd = [
         sys.executable, "-u", "-m", "src.cli",
@@ -45,9 +44,8 @@ async def run_scraper(
         "--max-results", str(max_results),
         "--slow-ms", str(slow_ms),
         "--timeout-ms", str(timeout_ms),
+        "--concurrency", str(concurrency),
     ]
-    if zones and zones.strip():
-        cmd += ["--zones", zones.strip()]
 
     async def run() -> None:
         proc = await asyncio.create_subprocess_exec(
@@ -56,12 +54,14 @@ async def run_scraper(
             stderr=asyncio.subprocess.STDOUT,
             cwd=str(BASE_DIR),
         )
+        jobs[job_id]["proc"] = proc
         assert proc.stdout is not None
         async for raw_line in proc.stdout:
             line = raw_line.decode("utf-8", errors="replace").rstrip()
             jobs[job_id]["lines"].append(line)
         await proc.wait()
-        jobs[job_id]["status"] = "done" if proc.returncode == 0 else "error"
+        if jobs[job_id]["status"] != "stopped":
+            jobs[job_id]["status"] = "done" if proc.returncode == 0 else "error"
 
     asyncio.create_task(run())
     return {"job_id": job_id}
@@ -94,6 +94,20 @@ async def stream(job_id: str) -> StreamingResponse:
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.post("/stop/{job_id}")
+async def stop_job(job_id: str) -> dict:
+    job = jobs.get(job_id)
+    if not job:
+        return {"error": "not found"}
+    if job["status"] != "running":
+        return {"status": job["status"]}
+    job["status"] = "stopped"
+    proc = job.get("proc")
+    if proc and proc.returncode is None:
+        proc.terminate()
+    return {"status": "stopped"}
 
 
 @app.get("/download/{job_id}")
