@@ -380,8 +380,6 @@
         if (status === 'done') {
           btnDl.style.display = 'inline-block';
           btnDl.onclick = () => { window.location = `/download-xlsx/${jobId}`; };
-          // Auto-descarga al completar
-          window.location = `/download-xlsx/${jobId}`;
         }
       });
 
