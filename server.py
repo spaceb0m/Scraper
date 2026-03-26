@@ -144,7 +144,12 @@ async def run_scraper(
                 jobs[job_id]["valid_count"] = int(m.group(1))
         await proc.wait()
         if jobs[job_id]["status"] != "stopped":
-            jobs[job_id]["status"] = "done" if proc.returncode == 0 else "error"
+            if proc.returncode == 0:
+                jobs[job_id]["status"] = "done"
+            elif jobs[job_id].get("valid_count", 0) > 0:
+                jobs[job_id]["status"] = "partial"
+            else:
+                jobs[job_id]["status"] = "error"
         _save_history()
 
     asyncio.create_task(run())

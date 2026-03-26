@@ -117,6 +117,7 @@
     .status-badge.done     { background: #064e3b; color: #34d399; display: inline-block; }
     .status-badge.error    { background: #4c1d1d; color: #f87171; display: inline-block; }
     .status-badge.stopped  { background: #451a03; color: #fdba74; display: inline-block; }
+    .status-badge.partial  { background: #451a03; color: #f59e0b; display: inline-block; }
 
     /* Stats bar */
     .stats-bar {
@@ -366,7 +367,8 @@
       badge.textContent =
         status === 'running' ? '● Ejecutando…' :
         status === 'done'    ? '✓ Completado'  :
-        status === 'stopped' ? '■ Detenido'    : '✗ Error';
+        status === 'stopped' ? '■ Detenido'    :
+        status === 'partial' ? '⚠ Parcial'     : '✗ Error';
       badge.style.display = 'inline-block';
       // Mostrar/ocultar botón Detener
       btnStop.style.display = status === 'running' ? 'inline-block' : 'none';
@@ -502,7 +504,7 @@
         setStatus(status);
         updateCurrentHistoryRow(statValid.textContent, status);
         btnRun.disabled = false;
-        if (status === 'done' || status === 'stopped') {
+        if (status === 'done' || status === 'stopped' || status === 'partial') {
           btnDl.style.display = 'inline-block';
           btnDl.onclick = () => { window.location = `/download/${job_id}`; };
         }
