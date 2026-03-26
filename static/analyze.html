@@ -242,9 +242,13 @@
       </div>
       <div class="stat">
         <span class="stat-value" id="stat-errors">–</span>
-        <span class="stat-label">Errores</span>
+        <span class="stat-label">Sin web/Error</span>
       </div>
     </div>
+
+    <p id="stats-note" style="display:none; font-size:0.72rem; color:#4b5563; margin-top:0.6rem;">
+      <strong style="color:#64748b;">Sin web/Error</strong>: negocios sin web, con web de red social (Instagram/Facebook), o cuya web no fue accesible (timeout, error HTTP).
+    </p>
 
     <div class="log-wrapper">
       <div class="log-header">
@@ -360,6 +364,7 @@
       lineCount.textContent = '0 líneas';
       [statFiltered, statAnalyzed, statStores, statErrors].forEach(el => el.textContent = '–');
       statsBar.classList.add('visible');
+      document.getElementById('stats-note').style.display = 'block';
       setStatus('running');
 
       await fetch(`/run-analyze/${jobId}`, { method: 'POST' });
@@ -375,6 +380,8 @@
         if (status === 'done') {
           btnDl.style.display = 'inline-block';
           btnDl.onclick = () => { window.location = `/download-xlsx/${jobId}`; };
+          // Auto-descarga al completar
+          window.location = `/download-xlsx/${jobId}`;
         }
       });
 

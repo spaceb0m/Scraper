@@ -71,6 +71,10 @@ async def _run(args: argparse.Namespace) -> None:
             _emit_stats(metrics)
             continue
 
+        # Normalizar URL: añadir https:// si falta protocolo
+        if web and not web.startswith(("http://", "https://")):
+            web = "https://" + web
+
         # Determine store status
         if not web or is_social_url(web):
             es_tienda = "-"
