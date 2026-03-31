@@ -10,6 +10,9 @@ WEBFLOW_HTML = '<script src="https://uploads-ssl.webflow.com/main.js">'
 GENERIC_STORE_HTML = '<button class="add-to-cart">Añadir al carrito</button>'
 GENERIC_CHECKOUT_HTML = '<a href="/checkout">Checkout</a>'
 PLAIN_HTML = '<html><body><p>Bienvenido a nuestra web corporativa</p></body></html>'
+VELFIX_FOOTER_HTML = '<footer>TECNOLOGÍA <a href="https://www.velfix.es">VELFIX</a></footer>'
+VELFIX_MEIGASOFT_HTML = '<p>DESARROLLADO POR <a href="https://www.meigasoft.es">Meigasoft</a></p>'
+VELFIX_VWEB_HTML = '<script>var vweb_web_configs = {"merchant": "frisee2"};</script>'
 
 
 def test_detect_shopify():
@@ -70,3 +73,21 @@ def test_not_a_store():
     is_store, platform = detect_platform(PLAIN_HTML)
     assert is_store is False
     assert platform is None
+
+
+def test_detect_velfix_footer_link():
+    is_store, platform = detect_platform(VELFIX_FOOTER_HTML)
+    assert is_store is True
+    assert platform == "Velfix"
+
+
+def test_detect_velfix_meigasoft():
+    is_store, platform = detect_platform(VELFIX_MEIGASOFT_HTML)
+    assert is_store is True
+    assert platform == "Velfix"
+
+
+def test_detect_velfix_vweb_config():
+    is_store, platform = detect_platform(VELFIX_VWEB_HTML)
+    assert is_store is True
+    assert platform == "Velfix"

@@ -2,7 +2,7 @@
 
 Este fichero proporciona contexto completo del proyecto para nuevas sesiones de trabajo.
 
-## Versión actual: 0.4
+## Versión actual: 0.5
 
 ## Qué es este proyecto
 

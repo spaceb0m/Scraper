@@ -1,4 +1,4 @@
-# Google Maps Scraper `v0.3`
+# Google Maps Scraper `v0.5`
 
 Scraper de negocios de Google Maps con interfaz web integrada. Extrae nombre, teléfono, dirección, web, valoración y categoría de los resultados de búsqueda y los exporta a CSV.
 
@@ -90,6 +90,32 @@ Abre `http://localhost:8000`. La interfaz permite:
 - Detener la ejecución en cualquier momento (el CSV parcial queda disponible)
 - Descargar el CSV resultante al finalizar o tras detener
 
+## Analizador de resultados
+
+Procesa el CSV generado por el scraper para detectar qué negocios tienen tienda online y qué tecnología ecommerce usan.
+
+```bash
+# Se lanza automáticamente desde la interfaz web (botón 🔍 en el historial)
+# También ejecutable directamente:
+python -m src.analyzer.cli --csv-path out/fichero.csv
+```
+
+### Qué hace
+
+1. **Filtra marcas** — excluye cadenas configuradas en `config/excluded_brands.json` (coincidencia de subcadena, sin distinguir mayúsculas)
+2. **Detecta tecnología** — descarga el HTML de cada web y busca firmas de plataformas conocidas
+3. **Genera XLSX** — fichero con dos pestañas:
+   - `Datos originales`: copia fiel del CSV
+   - `Análisis`: registros no filtrados con columnas `es_tienda` (Sí/No/–) y `tecnologia`
+
+### Plataformas detectadas
+
+Shopify, WooCommerce, PrestaShop, Velfix, Magento, Squarespace, Wix, Webflow y "Desconocida" (indicadores genéricos de carrito/checkout).
+
+### Métricas en tiempo real
+
+La interfaz web muestra durante el análisis: Filtrados / Analizados / Tiendas / Sin web·Error.
+
 ## Formato de salida (CSV)
 
 | Campo | Descripción |
@@ -128,8 +154,15 @@ src/
     ├── logging.py          # Configuración de logging
     └── retry.py            # Reintento async con backoff exponencial
 
-server.py                   # Servidor FastAPI (interfaz web + SSE + stop)
-static/index.html           # UI: formulario + log SSE + métricas + stop + descarga
+server.py                   # Servidor FastAPI (interfaz web + SSE + stop + analizador)
+static/index.html           # UI: formulario + log SSE + métricas + stop + descarga + historial
+static/analyze.html         # UI del analizador: editor de marcas, log SSE, descarga XLSX
+src/analyzer/
+├── cli.py                  # Punto de entrada del analizador (subproceso)
+├── brand_filter.py         # Filtrado de marcas por subcadena
+└── fingerprint.py          # Detección de plataforma ecommerce por fingerprinting HTML
+config/
+└── excluded_brands.json    # Lista de marcas a excluir (editable desde la UI)
 ```
 
 ## Cómo funciona el scraping

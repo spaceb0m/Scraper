@@ -10,6 +10,10 @@ _PLATFORMS = [
     ("Shopify",      "cdn.shopify.com"),
     ("WooCommerce",  "woocommerce"),
     ("PrestaShop",   "prestashop"),
+    # Velfix (plataforma ecommerce de Meigasoft) — antes de Magento para prioridad
+    ("Velfix",       "velfix.es"),
+    ("Velfix",       "meigasoft"),
+    ("Velfix",       "vweb_web_configs"),
     ("Magento",      "mage/"),
     ("Magento",      "Magento"),
     ("Squarespace",  "static.squarespace.com"),
