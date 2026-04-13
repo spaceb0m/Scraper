@@ -4,3 +4,6 @@ __pycache__/
 .pytest_cache/
 out/
 .DS_Store
+.claude/
+docs/
+CLAUDE.md
