@@ -13,6 +13,16 @@ import openpyxl
 
 from src.analyzer.brand_filter import is_excluded, load_brands
 from src.analyzer.fingerprint import detect_platform, fetch_page, is_social_url
+from src.analyzer.scoring import (
+    compute_score,
+    coords_from_maps_url,
+    count_stores_by_brand,
+    load_avatares,
+    load_eci_locations,
+    load_weights,
+    num_tiendas_for,
+)
+from src.comunidad.dataset import get_poblacion_municipio
 from src.utils.logging import setup_logging
 
 LOGGER = logging.getLogger(__name__)
@@ -71,9 +81,22 @@ async def _run(args: argparse.Namespace) -> None:
     brands = load_brands(args.brands_path)
     LOGGER.info("Marcas excluidas cargadas: %d", len(brands))
 
+    # Cargar configs de scoring (re-leídas en cada ejecución → editables sin reiniciar nada)
+    weights = load_weights()
+    avatares = load_avatares()
+    eci_locations = load_eci_locations()
+    LOGGER.info(
+        "Scoring: %d criterios | %d avatares | %d centros ECI",
+        len(weights["criterios"]), len(avatares), len(eci_locations),
+    )
+
     rows = _read_csv(args.csv_path)
     rows = _dedup_rows(rows)
     LOGGER.info("Registros en CSV: %d", len(rows))
+
+    # Pre-cómputo: contar tiendas por marca normalizada en TODO el dataset (incluye filtradas)
+    brand_counts = count_stores_by_brand(rows, name_field="nombre")
+    LOGGER.info("Marcas únicas detectadas: %d", len(brand_counts))
 
     xlsx_path = _derive_xlsx_path(args.csv_path)
 
@@ -111,12 +134,42 @@ async def _run(args: argparse.Namespace) -> None:
                 if is_store:
                     metrics["stores"] += 1
 
+        # ── Cálculo de scoring ──────────────────────────────────────────
+        lat, lon = coords_from_maps_url(row.get("maps_url", ""))
+        municipio = (row.get("municipio_origen") or "").strip()
+        poblacion = get_poblacion_municipio(municipio) if municipio else None
+        n_tiendas = num_tiendas_for(nombre, brand_counts)
+
+        if es_tienda == "Sí":
+            madurez = "ecommerce_funcional"
+        elif web:
+            # Hay web pero no se detectó e-commerce funcional (puede ser red social,
+            # web informativa o web caída). Se trata como presencia básica.
+            madurez = "solo_redes_sociales"
+        else:
+            madurez = "sin_presencia"
+
+        ctx = {
+            "lat": lat, "lon": lon,
+            "poblacion": poblacion or 0,
+            "num_tiendas": n_tiendas,
+            "madurez": madurez,
+        }
+        score = compute_score(ctx, eci_locations=eci_locations, avatares=avatares, weights=weights)
+
         metrics["analyzed"] += 1
-        analysis_rows.append({**row, "es_tienda": es_tienda, "tecnologia": tecnologia})
+        analysis_rows.append({
+            **row,
+            "es_tienda": es_tienda,
+            "tecnologia": tecnologia,
+            "prioridad": score["prioridad"],
+            "puntuacion": score["puntuacion_total"],
+            "justificacion": score["justificacion"],
+        })
 
         LOGGER.info(
-            "[analizado] %s | web=%s | tienda=%s | plataforma=%s",
-            nombre, web or "(sin web)", es_tienda, tecnologia,
+            "[analizado] %s | tienda=%s | %s | %dpts → %s",
+            nombre, es_tienda, tecnologia, score["puntuacion_total"], score["prioridad"],
         )
         _emit_stats(metrics)
 

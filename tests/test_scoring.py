@@ -40,6 +40,14 @@ def test_coords_from_maps_url_missing():
     assert coords_from_maps_url("") == (None, None)
 
 
+def test_coords_from_maps_url_data_format():
+    """Formato real de Google Maps tras click en place: data=!...!3dLAT!4dLON!..."""
+    url = "https://www.google.com/maps/place/Foo/data=!4m7!3m6!1s0x123!8m2!3d42.234976!4d-8.716834!16s/abc"
+    lat, lon = coords_from_maps_url(url)
+    assert lat == pytest.approx(42.234976)
+    assert lon == pytest.approx(-8.716834)
+
+
 def test_nearest_eci_picks_closest():
     eci = [
         {"ciudad": "Vigo", "lat": 42.2333, "lon": -8.7163},
