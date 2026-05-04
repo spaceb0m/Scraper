@@ -124,9 +124,17 @@ def test_score_num_tiendas(real_weights):
 
 
 def test_score_madurez(real_weights):
-    assert score_madurez_digital("ecommerce_funcional", real_weights)[0] == 20
-    assert score_madurez_digital("solo_redes_sociales", real_weights)[0] == 10
+    # Sin tecnología: usa el valor base de ecommerce_funcional (12)
+    assert score_madurez_digital("ecommerce_funcional", real_weights)[0] == 12
+    assert score_madurez_digital("solo_redes_sociales", real_weights)[0] == 5
     assert score_madurez_digital("sin_presencia", real_weights)[0] == 0
+    # Con tecnología: WooCommerce=20, PrestaShop/Magento=15, Shopify=10
+    assert score_madurez_digital("ecommerce_funcional", real_weights, "WooCommerce")[0] == 20
+    assert score_madurez_digital("ecommerce_funcional", real_weights, "PrestaShop")[0] == 15
+    assert score_madurez_digital("ecommerce_funcional", real_weights, "Magento")[0] == 15
+    assert score_madurez_digital("ecommerce_funcional", real_weights, "Shopify")[0] == 10
+    # Tecnología desconocida → cae al base
+    assert score_madurez_digital("ecommerce_funcional", real_weights, "Velfix")[0] == 12
 
 
 def test_tramo_for_score(real_weights):
@@ -219,10 +227,11 @@ def test_compute_score_microcadena_galicia(real_weights, real_avatars, real_eci)
         "poblacion": 31000,
         "num_tiendas": 4,
         "madurez": "ecommerce_funcional",
+        "tecnologia": "WooCommerce",
     }
     result = compute_score(ctx, eci_locations=real_eci, avatares=real_avatars, weights=real_weights)
     # Distancia ~16km → sombra ECI = 5pts. Pob 31k → ideal = 15. Tiendas 4 → 25.
-    # Madurez ecommerce → 20. Avatar 1: pob ✓ dist ✗ tiendas ✓ ecommerce ✓ = 3/4 → parcial = 8.
+    # Madurez ecommerce+Woo → 20. Avatar 1: pob ✓ dist ✗ tiendas ✓ ecommerce ✓ = 3/4 → parcial = 8.
     # Total = 5 + 15 + 25 + 20 + 8 = 73 → P2
     assert result["puntuacion_total"] == 73
     assert result["prioridad"] == "P2"

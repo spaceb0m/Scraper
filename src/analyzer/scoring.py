@@ -154,9 +154,15 @@ def score_num_tiendas(n: int, weights: Dict) -> Tuple[int, str]:
     return _band_score(n, bands, "min", "max")
 
 
-def score_madurez_digital(madurez: str, weights: Dict) -> Tuple[int, str]:
-    valores = weights["criterios"]["madurez_digital"]["valores"]
-    pts = int(valores.get(madurez, 0))
+def score_madurez_digital(
+    madurez: str, weights: Dict, tecnologia: Optional[str] = None,
+) -> Tuple[int, str]:
+    cfg = weights["criterios"]["madurez_digital"]
+    if madurez == "ecommerce_funcional" and tecnologia:
+        por_tec = cfg.get("por_tecnologia", {}) or {}
+        if tecnologia in por_tec:
+            return int(por_tec[tecnologia]), f"ecommerce_funcional ({tecnologia})"
+    pts = int(cfg["valores"].get(madurez, 0))
     return pts, madurez
 
 
@@ -268,7 +274,8 @@ def compute_score(
 
     # Madurez digital
     madurez = ctx.get("madurez", "sin_presencia")
-    pts_m, et_m = score_madurez_digital(madurez, weights)
+    tecnologia = ctx.get("tecnologia")
+    pts_m, et_m = score_madurez_digital(madurez, weights, tecnologia)
     breakdown["madurez_digital"] = {"puntos": pts_m, "valor": madurez, "etiqueta": et_m}
     justif_parts.append(f"madurez={et_m} [{pts_m}pts]")
 

@@ -156,6 +156,7 @@ async def _run(args: argparse.Namespace) -> None:
             "poblacion": poblacion or 0,
             "num_tiendas": n_tiendas,
             "madurez": madurez,
+            "tecnologia": tecnologia if tecnologia and tecnologia != "-" else None,
         }
         score = compute_score(ctx, eci_locations=eci_locations, avatares=avatares, weights=weights)
 

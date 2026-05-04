@@ -34,12 +34,18 @@
       ]
     },
     "madurez_digital": {
-      "_doc": "Estado del e-commerce. Se infiere de fingerprint (es_tienda) + presencia de web.",
+      "_doc": "Estado del e-commerce. Se infiere de fingerprint (es_tienda) + presencia de web. Si madurez=ecommerce_funcional y la tecnología detectada está en 'por_tecnologia', su valor sobrescribe a 'valores.ecommerce_funcional'. Prioridad comercial: WooCommerce (más dolores) > PrestaShop/Magento > Shopify (mejor cubiertos).",
       "peso_max": 20,
       "valores": {
-        "ecommerce_funcional": 20,
-        "solo_redes_sociales": 10,
+        "ecommerce_funcional": 12,
+        "solo_redes_sociales": 5,
         "sin_presencia": 0
+      },
+      "por_tecnologia": {
+        "WooCommerce": 20,
+        "PrestaShop": 15,
+        "Magento": 15,
+        "Shopify": 10
       }
     },
     "encaje_avatar": {
