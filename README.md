@@ -151,6 +151,13 @@ Ficheros de configuración:
 
 Para reordenar prioridades, sólo hay que editar el peso o las bandas del JSON correspondiente y volver a ejecutar el analizador. Por ejemplo, para dar más peso a la madurez digital: cambia `madurez_digital.peso_max` de 20 a 30 y ajusta el resto. La justificación generada en cada fila explica de dónde viene cada puntuación.
 
+### Email del negocio
+
+El analizador añade una columna `email` a la pestaña Análisis:
+
+- **Email real** — primer email "humano" encontrado en el HTML de la web (`mailto:` o texto plano). Filtra falsos positivos comunes: nombres de fichero (`logo@2x.png`, `font@1x.woff2`), DSN de Sentry, `noreply@…`, etc.
+- **Email ficticio** — si no se encuentra ninguno (o el negocio no tiene web), se genera `vmarketing@<slug>.com` donde `<slug>` es el nombre del negocio normalizado a ASCII y sin caracteres no válidos en direcciones de correo. Ej: "Joyería Águila & Co. (Vigo)" → `vmarketing@joyeriaaguilacovigo.com`.
+
 ### Avatares comerciales por defecto
 
 | ID | Nombre | Población | Distancia ECI | Nº tiendas | Ecommerce |
