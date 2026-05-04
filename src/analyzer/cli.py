@@ -7,11 +7,12 @@ import hashlib
 import logging
 import time
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import openpyxl
 
 from src.analyzer.brand_filter import is_excluded, load_brands
+from src.analyzer.email_extract import get_email
 from src.analyzer.fingerprint import detect_platform, fetch_page, is_social_url
 from src.analyzer.scoring import (
     compute_score,
@@ -117,7 +118,8 @@ async def _run(args: argparse.Namespace) -> None:
         if web and not web.startswith(("http://", "https://")):
             web = "https://" + web
 
-        # Determine store status
+        # Determine store status — guardamos el HTML para reusarlo en email_extract
+        html: "Optional[str]" = None
         if not web or is_social_url(web):
             es_tienda = "-"
             tecnologia = "-"
@@ -157,6 +159,9 @@ async def _run(args: argparse.Namespace) -> None:
         }
         score = compute_score(ctx, eci_locations=eci_locations, avatares=avatares, weights=weights)
 
+        # Email: real desde el HTML ya descargado, o ficticio basado en el nombre
+        email = get_email(html, nombre)
+
         metrics["analyzed"] += 1
         analysis_rows.append({
             **row,
@@ -165,11 +170,13 @@ async def _run(args: argparse.Namespace) -> None:
             "prioridad": score["prioridad"],
             "puntuacion": score["puntuacion_total"],
             "justificacion": score["justificacion"],
+            "email": email,
         })
 
         LOGGER.info(
-            "[analizado] %s | tienda=%s | %s | %dpts → %s",
-            nombre, es_tienda, tecnologia, score["puntuacion_total"], score["prioridad"],
+            "[analizado] %s | tienda=%s | %s | %dpts → %s | email=%s",
+            nombre, es_tienda, tecnologia, score["puntuacion_total"],
+            score["prioridad"], email,
         )
         _emit_stats(metrics)
 
