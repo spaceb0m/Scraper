@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from src.analyzer.scoring import (
+    classify_avatar,
     coords_from_maps_url,
     count_stores_by_brand,
     haversine_km,
@@ -12,7 +13,6 @@ from src.analyzer.scoring import (
     nearest_eci_distance_km,
     normalize_brand_key,
     num_tiendas_for,
-    score_avatar,
     score_distancia_eci,
     score_madurez_digital,
     score_num_tiendas,
@@ -86,7 +86,7 @@ def test_real_configs_load_smoke(real_weights, real_avatars, real_eci):
 
 def test_score_distancia_eci_optimo(real_weights):
     pts, etiqueta = score_distancia_eci(60, real_weights)
-    assert pts == 25
+    assert pts == 30
     assert "óptimo" in etiqueta
 
 
@@ -97,12 +97,12 @@ def test_score_distancia_eci_sombra(real_weights):
 
 def test_score_distancia_eci_aislado(real_weights):
     pts, _ = score_distancia_eci(150, real_weights)
-    assert pts == 10
+    assert pts == 12
 
 
 def test_score_poblacion_ideal(real_weights):
     pts, etiqueta = score_poblacion(25000, real_weights)
-    assert pts == 15
+    assert pts == 20
     assert "ideal" in etiqueta
 
 
@@ -117,10 +117,10 @@ def test_score_poblacion_urbano(real_weights):
 
 
 def test_score_num_tiendas(real_weights):
-    assert score_num_tiendas(4, real_weights)[0] == 25
-    assert score_num_tiendas(2, real_weights)[0] == 15
+    assert score_num_tiendas(4, real_weights)[0] == 30
+    assert score_num_tiendas(2, real_weights)[0] == 18
     assert score_num_tiendas(1, real_weights)[0] == 5
-    assert score_num_tiendas(10, real_weights)[0] == 10
+    assert score_num_tiendas(10, real_weights)[0] == 12
 
 
 def test_score_madurez(real_weights):
@@ -138,44 +138,43 @@ def test_tramo_for_score(real_weights):
 
 # ─── Avatar matching ────────────────────────────────────────────────────
 
-def test_score_avatar_match_avatar1(real_avatars, real_weights):
+def test_classify_avatar_claro_avatar1(real_avatars):
     ctx = {
         "poblacion": 25000,
         "distancia_eci_km": 60,
         "num_tiendas": 4,
         "ecommerce": True,
     }
-    pts, etiqueta, av_id = score_avatar(ctx, real_avatars, real_weights)
+    label, av_id, level = classify_avatar(ctx, real_avatars)
     assert av_id == 1
-    assert pts == 15
-    assert "claro" in etiqueta
+    assert level == "claro"
+    assert "Señorío" in label
 
 
-def test_score_avatar_partial(real_avatars, real_weights):
-    # Cumple población + tiendas pero no distancia ni ecommerce
+def test_classify_avatar_partial(real_avatars):
+    # Pob ✓, dist ✗, tiendas ✓, ecommerce ✗ → 2/4 → parcial
     ctx = {
         "poblacion": 25000,
         "distancia_eci_km": 5,
         "num_tiendas": 4,
         "ecommerce": False,
     }
-    pts, etiqueta, av_id = score_avatar(ctx, real_avatars, real_weights)
-    # 3/4 cumplidos para avatar 1: poblacion ✓, distancia ✗, num_tiendas ✓, ecommerce_requerido=True y ecommerce=False → ✗ → 2 cumplidos
-    # encaje_parcial_si_cumple_n=2 → encaje parcial
-    assert pts == 8
-    assert "parcial" in etiqueta
+    label, av_id, level = classify_avatar(ctx, real_avatars)
+    assert level == "parcial"
+    assert "(parcial)" in label
 
 
-def test_score_avatar_no_match(real_avatars, real_weights):
+def test_classify_avatar_no_match(real_avatars):
     ctx = {
         "poblacion": 500,
         "distancia_eci_km": 200,
         "num_tiendas": 50,
         "ecommerce": False,
     }
-    pts, _, av_id = score_avatar(ctx, real_avatars, real_weights)
-    assert pts == 0
+    label, av_id, level = classify_avatar(ctx, real_avatars)
+    assert level == "ninguno"
     assert av_id is None
+    assert label == "—"
 
 
 # ─── Conteo de tiendas ──────────────────────────────────────────────────
@@ -213,7 +212,7 @@ def test_num_tiendas_for_unknown_returns_one():
 # ─── Cálculo completo ───────────────────────────────────────────────────
 
 def test_compute_score_microcadena_galicia(real_weights, real_avatars, real_eci):
-    """Negocio en Carballo (~16km de ECI A Coruña, pob 31k), 4 tiendas, ecommerce funcional."""
+    """Negocio en Carballo (~27km de ECI A Coruña, pob 31k), 4 tiendas, ecommerce funcional."""
     ctx = {
         "lat": 43.21, "lon": -8.69,
         "poblacion": 31000,
@@ -221,17 +220,17 @@ def test_compute_score_microcadena_galicia(real_weights, real_avatars, real_eci)
         "madurez": "ecommerce_funcional",
     }
     result = compute_score(ctx, eci_locations=real_eci, avatares=real_avatars, weights=real_weights)
-    # Distancia ~16km → sombra ECI = 5pts. Pob 31k → ideal = 15. Tiendas 4 → 25.
-    # Madurez ecommerce → 20. Avatar 1: pob ✓ dist ✗ tiendas ✓ ecommerce ✓ = 3/4 → parcial = 8.
-    # Total = 5 + 15 + 25 + 20 + 8 = 73 → P2
-    assert result["puntuacion_total"] == 73
-    assert result["prioridad"] == "P2"
-    assert "ECI" in result["justificacion"]
-    assert "tiendas" in result["justificacion"]
+    # Distancia ~27km → sombra ECI = 5pts. Pob 31k → ideal = 20. Tiendas 4 → 30.
+    # Madurez ecommerce → 20. Total = 5 + 20 + 30 + 20 = 75 → P1 (avatar NO suma).
+    assert result["puntuacion_total"] == 75
+    assert result["prioridad"] == "P1"
+    # Avatar 1 (Señorío Comarcal): pob ✓ dist ✗ tiendas ✓ ecommerce ✓ = 3/4 → parcial.
+    assert result["avatar_nivel"] == "parcial"
+    assert "Señorío" in result["avatar"]
 
 
 def test_compute_score_p1_full_match(real_weights, real_avatars, real_eci):
-    """Caso ideal Avatar 1: 60km de ECI, pob 25k, 4 tiendas, ecommerce → 25+15+25+20+15 = 100."""
+    """Caso ideal Avatar 1: 60km de ECI, pob 25k, 4 tiendas, ecommerce → 30+20+30+20 = 100."""
     # Punto a ~60km al norte de Madrid (Castellana 40.447, -3.690): lat ~40.985
     ctx = {
         "lat": 40.985, "lon": -3.690,
@@ -240,8 +239,18 @@ def test_compute_score_p1_full_match(real_weights, real_avatars, real_eci):
         "madurez": "ecommerce_funcional",
     }
     result = compute_score(ctx, eci_locations=real_eci, avatares=real_avatars, weights=real_weights)
-    assert result["puntuacion_total"] >= 75  # P1
+    assert result["puntuacion_total"] == 100
     assert result["prioridad"] == "P1"
+    assert result["avatar_nivel"] == "claro"
+
+
+def test_compute_score_avatar_does_not_add_points(real_weights, real_avatars, real_eci):
+    """El avatar NO debe sumar al total — comparar igual contexto con/sin avatares."""
+    ctx_a = {"lat": 40.985, "lon": -3.690, "poblacion": 25000, "num_tiendas": 4, "madurez": "ecommerce_funcional"}
+    ctx_b = {"lat": 40.985, "lon": -3.690, "poblacion": 25000, "num_tiendas": 4, "madurez": "ecommerce_funcional"}
+    r1 = compute_score(ctx_a, eci_locations=real_eci, avatares=real_avatars, weights=real_weights)
+    r2 = compute_score(ctx_b, eci_locations=real_eci, avatares=[], weights=real_weights)
+    assert r1["puntuacion_total"] == r2["puntuacion_total"]
 
 
 def test_compute_score_no_coords(real_weights, real_avatars, real_eci):

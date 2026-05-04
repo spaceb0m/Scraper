@@ -192,27 +192,35 @@ def _avatar_check(ctx: Dict, criterios: Dict) -> Tuple[int, int]:
     return cumple, total
 
 
-def score_avatar(
-    ctx: Dict, avatares: List[Dict], weights: Dict,
-) -> Tuple[int, str, Optional[int]]:
-    """Devuelve (puntos, etiqueta, avatar_id) del mejor avatar que encaja."""
-    valores = weights["criterios"]["encaje_avatar"]["valores"]
-    best_pts = 0
-    best_label = "no encaja con ningún avatar"
+def classify_avatar(
+    ctx: Dict, avatares: List[Dict],
+) -> Tuple[str, Optional[int], str]:
+    """Clasifica el negocio en uno de los avatares definidos.
+
+    Devuelve (label_humano, avatar_id, nivel) donde nivel ∈ {'claro','parcial','ninguno'}.
+    El avatar NO aporta puntos al scoring — es sólo informativo.
+    Selecciona el avatar con encaje más fuerte (claro > parcial); en empate
+    gana el primero declarado en el JSON.
+    """
+    best_level = "ninguno"
+    best_label = "—"
     best_id: Optional[int] = None
+    level_rank = {"ninguno": 0, "parcial": 1, "claro": 2}
     for av in avatares:
         cumple, total = _avatar_check(ctx, av["criterios"])
         if cumple == total:
-            pts = int(valores["encaje_claro"])
-            label = f"encaje claro con Avatar {av['id']} ({av['nombre']})"
+            level = "claro"
+            label = av["nombre"]
         elif cumple >= int(av.get("encaje_parcial_si_cumple_n", 2)):
-            pts = int(valores["encaje_parcial"])
-            label = f"encaje parcial con Avatar {av['id']} ({av['nombre']})"
+            level = "parcial"
+            label = f"{av['nombre']} (parcial)"
         else:
             continue
-        if pts > best_pts:
-            best_pts, best_label, best_id = pts, label, av["id"]
-    return best_pts, best_label, best_id
+        if level_rank[level] > level_rank[best_level]:
+            best_level = level
+            best_label = label
+            best_id = av["id"]
+    return best_label, best_id, best_level
 
 
 # ─── Tramo de prioridad ─────────────────────────────────────────────────
@@ -272,19 +280,27 @@ def compute_score(
     breakdown["madurez_digital"] = {"puntos": pts_m, "valor": madurez, "etiqueta": et_m}
     justif_parts.append(f"madurez={et_m} [{pts_m}pts]")
 
-    # Avatar
+    # Avatar (clasificación informativa, NO aporta puntos)
     ctx["ecommerce"] = ctx.get("madurez") == "ecommerce_funcional"
-    pts_a, et_a, av_id = score_avatar(ctx, avatares, weights)
-    breakdown["avatar"] = {"puntos": pts_a, "valor_avatar_id": av_id, "etiqueta": et_a}
-    justif_parts.append(f"{et_a} [{pts_a}pts]")
+    avatar_label, avatar_id, avatar_level = classify_avatar(ctx, avatares)
+    breakdown["avatar"] = {
+        "valor_avatar_id": avatar_id,
+        "etiqueta": avatar_label,
+        "nivel": avatar_level,
+    }
+    if avatar_level != "ninguno":
+        justif_parts.append(f"avatar={avatar_label}")
 
-    total = pts_d + pts_p + pts_t + pts_m + pts_a
+    total = pts_d + pts_p + pts_t + pts_m
     pid, plabel = tramo_for_score(total, weights)
 
     return {
         "puntuacion_total": total,
         "prioridad": pid,
         "prioridad_etiqueta": plabel,
+        "avatar": avatar_label,
+        "avatar_id": avatar_id,
+        "avatar_nivel": avatar_level,
         "justificacion": "; ".join(justif_parts),
         "breakdown": breakdown,
     }

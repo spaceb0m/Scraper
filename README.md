@@ -1,4 +1,4 @@
-# Google Maps Scraper `v0.8`
+# Google Maps Scraper `v0.9`
 
 Scraper de negocios de Google Maps con interfaz web integrada. Extrae nombre, teléfono, dirección, web, valoración y categoría de los resultados de búsqueda y los exporta a CSV.
 
@@ -122,10 +122,10 @@ python -m src.analyzer.cli --csv-path out/fichero.csv
 
 1. **Filtra marcas** — excluye cadenas configuradas en `config/excluded_brands.json` (coincidencia de subcadena, sin distinguir mayúsculas)
 2. **Detecta tecnología** — descarga el HTML de cada web y busca firmas de plataformas conocidas
-3. **Calcula scoring de prioridad comercial** — puntúa 0–100 cada negocio sobre 5 criterios y lo agrupa en tramos P1–P4 (ver más abajo)
+3. **Calcula scoring de prioridad comercial** — puntúa 0–100 cada negocio sobre 4 criterios y lo agrupa en tramos P1–P4. Además clasifica cada negocio en uno de 3 arquetipos comerciales (informativo, sin sumar puntos)
 4. **Genera XLSX** — fichero con dos pestañas:
    - `Datos originales`: copia fiel del CSV
-   - `Análisis`: registros no filtrados con columnas `es_tienda` (Sí/No/–), `tecnologia`, `prioridad` (P1–P4), `puntuacion` (0–100) y `justificacion` (desglose legible)
+   - `Análisis`: registros no filtrados con columnas `es_tienda` (Sí/No/–), `tecnologia`, `prioridad` (P1–P4), `puntuacion` (0–100), `avatar` (arquetipo comercial) y `justificacion` (desglose legible)
 
 ### Plataformas detectadas
 
@@ -133,20 +133,21 @@ Shopify, WooCommerce, PrestaShop, Velfix, Magento, Squarespace, Wix, Webflow y "
 
 ### Sistema de scoring
 
-Cada negocio recibe una puntuación 0–100 sumando hasta 5 criterios independientes. **Los pesos y bandas son totalmente parametrizables** editando los JSON en `config/` — no hay que tocar código.
+Cada negocio recibe una puntuación 0–100 sumando 4 criterios independientes. **Los pesos y bandas son totalmente parametrizables** editando los JSON en `config/` — no hay que tocar código.
 
 | Criterio | Peso máx | Datos que necesita | Configuración |
 |---|---|---|---|
-| Distancia al ECI más cercano | 25 pts | `maps_url` (lat/lon) y `eci_locations.json` | bandas de km configurables |
-| Población del municipio | 15 pts | `municipio_origen` (CSV) → `municipios_es.json` | bandas de hab. configurables |
-| Nº de tiendas de la marca | 25 pts | conteo de duplicados de marca en el CSV | bandas de nº de locales |
+| Distancia al ECI más cercano | 30 pts | `maps_url` (lat/lon) y `eci_locations.json` | bandas de km configurables |
+| Población del municipio | 20 pts | `municipio_origen` (CSV) → `municipios_es.json` | bandas de hab. configurables |
+| Nº de tiendas de la marca | 30 pts | conteo de duplicados de marca en el CSV | bandas de nº de locales |
 | Madurez digital / e-commerce | 20 pts | resultado del fingerprint | 3 valores discretos |
-| Encaje con avatar comercial | 15 pts | combinación de los anteriores + `scoring_avatars.json` | claro / parcial / no encaja |
+
+Adicionalmente, el sistema **clasifica** cada negocio en uno de los 3 arquetipos de cliente comercial (Señorío Comarcal, Hegemonía Interior, Aguja Urbana) y lo escribe en la columna `avatar` del XLSX. **El avatar es informativo y NO suma puntos al total** — sirve para segmentar la lista comercial por perfil.
 
 Ficheros de configuración:
 
 - **`config/scoring_weights.json`** — pesos, bandas por criterio y umbrales de los tramos P1–P4 (default P1≥75, P2≥55, P3≥35, P4<35).
-- **`config/scoring_avatars.json`** — los 3 arquetipos de cliente (Señorío Comarcal, Hegemonía Interior, Aguja Urbana) con sus rangos de población, distancia ECI, nº de tiendas y requisito de e-commerce.
+- **`config/scoring_avatars.json`** — los 3 arquetipos de cliente con sus rangos de población, distancia ECI, nº de tiendas y requisito de e-commerce. Sólo afecta a la columna `avatar`, no a la puntuación.
 - **`config/eci_locations.json`** — ~60 centros ECI con coordenadas. Editable a mano para añadir/eliminar centros.
 
 Para reordenar prioridades, sólo hay que editar el peso o las bandas del JSON correspondiente y volver a ejecutar el analizador. Por ejemplo, para dar más peso a la madurez digital: cambia `madurez_digital.peso_max` de 20 a 30 y ajusta el resto. La justificación generada en cada fila explica de dónde viene cada puntuación.

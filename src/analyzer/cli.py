@@ -169,14 +169,15 @@ async def _run(args: argparse.Namespace) -> None:
             "tecnologia": tecnologia,
             "prioridad": score["prioridad"],
             "puntuacion": score["puntuacion_total"],
+            "avatar": score["avatar"],
             "justificacion": score["justificacion"],
             "email": email,
         })
 
         LOGGER.info(
-            "[analizado] %s | tienda=%s | %s | %dpts → %s | email=%s",
+            "[analizado] %s | tienda=%s | %s | %dpts → %s | avatar=%s | email=%s",
             nombre, es_tienda, tecnologia, score["puntuacion_total"],
-            score["prioridad"], email,
+            score["prioridad"], score["avatar"], email,
         )
         _emit_stats(metrics)
 
