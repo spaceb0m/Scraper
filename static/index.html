@@ -191,7 +191,7 @@
   </style>
 </head>
 <body>
-  <h1>Google Maps Scraper <span style="font-size:0.55em; color:#64748b; font-weight:500; vertical-align:middle;">v0.8.4</span></h1>
+  <h1>Google Maps Scraper <span style="font-size:0.55em; color:#64748b; font-weight:500; vertical-align:middle;">v0.8.5</span></h1>
 
   <div class="card">
     <form id="form">
@@ -582,6 +582,15 @@
         historyBody.appendChild(makeHistoryRow(entry));
       }
       historyCard.style.display = entries.length > 0 ? 'block' : 'none';
+
+      // Auto-reattach: si hay un job en ejecución y el frontend no está
+      // ya conectado a un stream, engánchate para mostrar log + stats.
+      if (!es) {
+        const running = entries.find((e) => e.status === 'running');
+        if (running) {
+          attachStream(running.job_id, running.output);
+        }
+      }
     }
 
     function updateCurrentHistoryRow(validCount, status) {

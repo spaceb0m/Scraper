@@ -51,6 +51,22 @@ analyze_jobs: dict[str, dict] = {}
 BRANDS_PATH = BASE_DIR / "config" / "excluded_brands.json"
 
 
+def _count_csv_rows(output: str) -> int:
+    """Cuenta las filas de datos (sin cabecera) del CSV. 0 si no existe."""
+    if not output:
+        return 0
+    path = BASE_DIR / output
+    if not path.exists():
+        return 0
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            # -1 por la cabecera
+            count = sum(1 for _ in fh) - 1
+            return max(count, 0)
+    except OSError:
+        return 0
+
+
 def _pid_alive(pid: Optional[int]) -> bool:
     """Comprueba si un PID sigue vivo. Devuelve False si pid es None o no existe."""
     if not pid:
@@ -95,12 +111,19 @@ def _load_history() -> None:
         if status == "running" and not _pid_alive(pid):
             status = "stopped"
             pid = None
+        # Reconciliar valid_count con el CSV real para entradas terminadas
+        # (running se mantiene para no incurrir en lectura constante).
+        valid_count = entry.get("valid_count", 0)
+        if status != "running":
+            real = _count_csv_rows(entry.get("output", ""))
+            if real > 0:
+                valid_count = real
         jobs[entry["job_id"]] = {
             "city": entry.get("city", ""),
             "category": entry.get("category", ""),
             "started_at": entry.get("started_at", ""),
             "status": status,
-            "valid_count": entry.get("valid_count", 0),
+            "valid_count": valid_count,
             "output": entry.get("output", ""),
             "params": params,
             "pid": pid,
@@ -348,10 +371,15 @@ async def _spawn_scraper(job_id: str, cmd: list) -> None:
         if m:
             jobs[job_id]["valid_count"] = int(m.group(1))
     await proc.wait()
+    # Reconciliar valid_count con el CSV real (regex sobre el log puede ir
+    # desincronizado si el subprocess muere a media línea o si hubo
+    # múltiples spawns).
+    real_count = _count_csv_rows(jobs[job_id].get("output", ""))
+    jobs[job_id]["valid_count"] = real_count
     if jobs[job_id]["status"] != "stopped":
         if proc.returncode == 0:
             jobs[job_id]["status"] = "done"
-        elif jobs[job_id].get("valid_count", 0) > 0:
+        elif real_count > 0:
             jobs[job_id]["status"] = "partial"
         else:
             jobs[job_id]["status"] = "error"
@@ -405,6 +433,7 @@ async def resume_job(job_id: str) -> dict:
     job["status"] = "running"
     job["lines"] = []
     job["proc"] = None
+    job["valid_count"] = _count_csv_rows(output)
     cmd = _build_scraper_cmd(params, output, resume_csv=output)
     asyncio.create_task(_spawn_scraper(job_id, cmd))
     return {"job_id": job_id, "output": output}
@@ -443,6 +472,7 @@ async def stop_job(job_id: str) -> dict:
             except OSError:
                 pass
     job["pid"] = None
+    job["valid_count"] = _count_csv_rows(job.get("output", ""))
     _save_history()
     return {"status": "stopped"}
 
