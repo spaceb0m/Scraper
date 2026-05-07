@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import platform
 import re
+import signal
 import subprocess
 import sys
 import unicodedata
@@ -49,6 +51,17 @@ analyze_jobs: dict[str, dict] = {}
 BRANDS_PATH = BASE_DIR / "config" / "excluded_brands.json"
 
 
+def _pid_alive(pid: Optional[int]) -> bool:
+    """Comprueba si un PID sigue vivo. Devuelve False si pid es None o no existe."""
+    if not pid:
+        return False
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except (OSError, ProcessLookupError, ValueError):
+        return False
+
+
 def _load_history() -> None:
     """Carga el historial de ejecuciones desde disco al arrancar el servidor."""
     if not HISTORY_PATH.exists():
@@ -74,14 +87,23 @@ def _load_history() -> None:
                     "comunidad": city_field,
                     "category": entry.get("category", ""),
                 }
+        status = entry.get("status", "done")
+        pid = entry.get("pid")
+        # Orphan recovery: si está marcado "running" pero el PID no existe,
+        # el subprocess murió (probablemente al reiniciar uvicorn). Marcar
+        # como "stopped" para que se pueda reanudar/borrar desde la UI.
+        if status == "running" and not _pid_alive(pid):
+            status = "stopped"
+            pid = None
         jobs[entry["job_id"]] = {
             "city": entry.get("city", ""),
             "category": entry.get("category", ""),
             "started_at": entry.get("started_at", ""),
-            "status": entry.get("status", "done"),
+            "status": status,
             "valid_count": entry.get("valid_count", 0),
             "output": entry.get("output", ""),
             "params": params,
+            "pid": pid,
             "lines": [],
             "proc": None,
         }
@@ -100,6 +122,7 @@ def _save_history() -> None:
             "valid_count": j.get("valid_count", 0),
             "output": j.get("output", ""),
             "params": j.get("params") or {},
+            "pid": j.get("pid"),
         }
         for jid, j in jobs.items()
         if j.get("started_at")
@@ -315,6 +338,8 @@ async def _spawn_scraper(job_id: str, cmd: list) -> None:
         cwd=str(BASE_DIR),
     )
     jobs[job_id]["proc"] = proc
+    jobs[job_id]["pid"] = proc.pid
+    _save_history()  # persistir PID para que /stop pueda matarlo tras reload de uvicorn
     assert proc.stdout is not None
     async for raw_line in proc.stdout:
         line = raw_line.decode("utf-8", errors="replace").rstrip()
@@ -330,6 +355,7 @@ async def _spawn_scraper(job_id: str, cmd: list) -> None:
             jobs[job_id]["status"] = "partial"
         else:
             jobs[job_id]["status"] = "error"
+    jobs[job_id]["pid"] = None
     _save_history()
 
 
@@ -407,6 +433,16 @@ async def stop_job(job_id: str) -> dict:
     proc = job.get("proc")
     if proc and proc.returncode is None:
         proc.terminate()
+    else:
+        # Fallback: el proc puede no estar en memoria si uvicorn se reinició
+        # mientras el subprocess seguía vivo. Matar por PID persistido.
+        pid = job.get("pid")
+        if _pid_alive(pid):
+            try:
+                os.kill(int(pid), signal.SIGTERM)
+            except OSError:
+                pass
+    job["pid"] = None
     _save_history()
     return {"status": "stopped"}
 
