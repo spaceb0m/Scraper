@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Awaitable, Callable, Dict, List
+from typing import Awaitable, Callable, Dict, List, Optional, Set
 
 from src.comunidad.dataset import load_municipios
 
@@ -24,6 +24,7 @@ async def run_comunidad(
     min_poblacion: int,
     process_city: Callable[[str, str], Awaitable[int]],
     is_full: Callable[[], bool] = lambda: False,
+    skip_municipios: Optional[Set[str]] = None,
 ) -> int:
     """Ejecuta `process_city(city_str, municipio_origen)` para cada municipio de la CCAA.
 
@@ -34,8 +35,20 @@ async def run_comunidad(
     municipios = build_municipio_queue(comunidad, min_poblacion)
     total_municipios = len(municipios)
     total_records = 0
+    skip_set = {s.strip().lower() for s in (skip_municipios or set())}
+    if skip_set:
+        LOGGER.info(
+            "Resume: saltando %d municipios ya procesados: %s",
+            len(skip_set), sorted(skip_set),
+        )
 
     for idx, m in enumerate(municipios, start=1):
+        if m["nombre"].strip().lower() in skip_set:
+            LOGGER.info(
+                "[Municipio %d/%d] %s — saltado (ya procesado)",
+                idx, total_municipios, m["nombre"],
+            )
+            continue
         if is_full():
             LOGGER.info(
                 "Cap global alcanzado tras %d/%d municipios — parando.",

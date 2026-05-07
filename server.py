@@ -63,6 +63,7 @@ def _load_history() -> None:
                 "status": entry.get("status", "done"),
                 "valid_count": entry.get("valid_count", 0),
                 "output": entry.get("output", ""),
+                "params": entry.get("params") or {},
                 "lines": [],
                 "proc": None,
             }
@@ -82,6 +83,7 @@ def _save_history() -> None:
             "status": j["status"],
             "valid_count": j.get("valid_count", 0),
             "output": j.get("output", ""),
+            "params": j.get("params") or {},
         }
         for jid, j in jobs.items()
         if j.get("started_at")
@@ -234,6 +236,18 @@ async def run_scraper(
     job_id = str(uuid.uuid4())
     label_for_output = comunidad if comunidad else city
     output = _make_output_path(label_for_output, category)
+    params = {
+        "city": city,
+        "comunidad": comunidad,
+        "category": category,
+        "headless": headless,
+        "max_results": max_results,
+        "slow_ms": slow_ms,
+        "timeout_ms": timeout_ms,
+        "concurrency": concurrency,
+        "adaptive_subdivision": adaptive_subdivision,
+        "min_poblacion": min_poblacion,
+    }
     jobs[job_id] = {
         "city": comunidad if comunidad else city,
         "category": category,
@@ -241,53 +255,66 @@ async def run_scraper(
         "status": "running",
         "valid_count": 0,
         "output": output,
+        "params": params,
         "lines": [],
         "proc": None,
     }
 
+    cmd = _build_scraper_cmd(params, output, resume_csv=None)
+    asyncio.create_task(_spawn_scraper(job_id, cmd))
+    return {"job_id": job_id, "output": output}
+
+
+def _build_scraper_cmd(
+    params: dict, output: str, resume_csv: Optional[str] = None,
+) -> list:
     cmd = [
         sys.executable, "-u", "-m", "src.cli",
-        "--category", category,
+        "--category", params["category"],
         "--output", output,
-        "--headless", headless,
-        "--max-results", str(max_results),
-        "--slow-ms", str(slow_ms),
-        "--timeout-ms", str(timeout_ms),
-        "--concurrency", str(concurrency),
-        "--adaptive-subdivision", adaptive_subdivision,
+        "--headless", str(params.get("headless", "true")),
+        "--max-results", str(params.get("max_results", 0)),
+        "--slow-ms", str(params.get("slow_ms", 250)),
+        "--timeout-ms", str(params.get("timeout_ms", 15000)),
+        "--concurrency", str(params.get("concurrency", 3)),
+        "--adaptive-subdivision", str(params.get("adaptive_subdivision", "false")),
     ]
-    if comunidad:
-        cmd += ["--comunidad", comunidad, "--min-poblacion", str(min_poblacion)]
-    else:
-        cmd += ["--city", city]
+    if params.get("comunidad"):
+        cmd += [
+            "--comunidad", params["comunidad"],
+            "--min-poblacion", str(params.get("min_poblacion", 5000)),
+        ]
+    elif params.get("city"):
+        cmd += ["--city", params["city"]]
+    if resume_csv:
+        cmd += ["--resume-csv", resume_csv]
+    return cmd
 
-    async def run() -> None:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            cwd=str(BASE_DIR),
-        )
-        jobs[job_id]["proc"] = proc
-        assert proc.stdout is not None
-        async for raw_line in proc.stdout:
-            line = raw_line.decode("utf-8", errors="replace").rstrip()
-            jobs[job_id]["lines"].append(line)
-            m = re.search(r"valid=(\d+)", line)
-            if m:
-                jobs[job_id]["valid_count"] = int(m.group(1))
-        await proc.wait()
-        if jobs[job_id]["status"] != "stopped":
-            if proc.returncode == 0:
-                jobs[job_id]["status"] = "done"
-            elif jobs[job_id].get("valid_count", 0) > 0:
-                jobs[job_id]["status"] = "partial"
-            else:
-                jobs[job_id]["status"] = "error"
-        _save_history()
 
-    asyncio.create_task(run())
-    return {"job_id": job_id, "output": output}
+async def _spawn_scraper(job_id: str, cmd: list) -> None:
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        cwd=str(BASE_DIR),
+    )
+    jobs[job_id]["proc"] = proc
+    assert proc.stdout is not None
+    async for raw_line in proc.stdout:
+        line = raw_line.decode("utf-8", errors="replace").rstrip()
+        jobs[job_id]["lines"].append(line)
+        m = re.search(r"valid=(\d+)", line)
+        if m:
+            jobs[job_id]["valid_count"] = int(m.group(1))
+    await proc.wait()
+    if jobs[job_id]["status"] != "stopped":
+        if proc.returncode == 0:
+            jobs[job_id]["status"] = "done"
+        elif jobs[job_id].get("valid_count", 0) > 0:
+            jobs[job_id]["status"] = "partial"
+        else:
+            jobs[job_id]["status"] = "error"
+    _save_history()
 
 
 @app.get("/stream/{job_id}")
@@ -317,6 +344,40 @@ async def stream(job_id: str) -> StreamingResponse:
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.post("/resume/{job_id}")
+async def resume_job(job_id: str) -> dict:
+    job = jobs.get(job_id)
+    if not job:
+        return {"error": "not found"}
+    if job.get("status") == "running":
+        return {"error": "ya está en ejecución"}
+    params = job.get("params") or {}
+    if not params.get("comunidad"):
+        return {"error": "sólo se pueden reanudar ejecuciones en modo comunidad"}
+    output = job.get("output") or ""
+    if not output or not (BASE_DIR / output).exists():
+        return {"error": "no se encuentra el CSV original"}
+
+    job["status"] = "running"
+    job["lines"] = []
+    job["proc"] = None
+    cmd = _build_scraper_cmd(params, output, resume_csv=output)
+    asyncio.create_task(_spawn_scraper(job_id, cmd))
+    return {"job_id": job_id, "output": output}
+
+
+@app.delete("/history/{job_id}")
+async def delete_history(job_id: str) -> dict:
+    job = jobs.get(job_id)
+    if not job:
+        return {"error": "not found"}
+    if job.get("status") == "running":
+        return {"error": "no se puede borrar un job en ejecución"}
+    jobs.pop(job_id, None)
+    _save_history()
+    return {"status": "ok"}
 
 
 @app.post("/stop/{job_id}")

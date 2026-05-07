@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import csv
 import json
 import logging
 import random
 import time
-from typing import Any
+from pathlib import Path
+from typing import Any, Set
 
 from playwright.async_api import async_playwright
 
@@ -59,7 +61,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--min-poblacion", type=int, default=5000, dest="min_poblacion",
         help="Población mínima de los municipios a incluir (default: 5000). Sólo aplica con --comunidad.",
     )
+    parser.add_argument(
+        "--resume-csv", type=str, default=None, dest="resume_csv",
+        help="Reanuda usando un CSV existente: precarga dedup y, en modo comunidad, salta municipios ya presentes.",
+    )
     return parser
+
+
+def _read_processed_municipios(csv_path: str) -> Set[str]:
+    """Lee la columna municipio_origen del CSV y devuelve el set de municipios ya procesados (lower)."""
+    path = Path(csv_path)
+    if not path.exists():
+        return set()
+    seen: Set[str] = set()
+    with path.open("r", newline="", encoding="utf-8") as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            m = (row.get("municipio_origen") or "").strip().lower()
+            if m:
+                seen.add(m)
+    return seen
 
 
 async def _process_refs(
@@ -323,11 +344,20 @@ async def _run(args: argparse.Namespace) -> None:
 
     # CSV compartido entre todas las ciudades (dedup global automático).
     # max_records: cap global. 0 = sin límite.
-    csv_writer = StreamingCsvWriter(args.output, max_records=args.max_results)
-    LOGGER.info(
-        "CSV: %s (cap=%s)",
-        args.output, args.max_results if args.max_results > 0 else "sin límite",
+    resume_mode = bool(args.resume_csv)
+    csv_writer = StreamingCsvWriter(
+        args.output, max_records=args.max_results, resume=resume_mode,
     )
+    LOGGER.info(
+        "CSV: %s (cap=%s)%s",
+        args.output,
+        args.max_results if args.max_results > 0 else "sin límite",
+        " [resume]" if resume_mode else "",
+    )
+
+    skip_municipios: Set[str] = set()
+    if resume_mode and args.comunidad:
+        skip_municipios = _read_processed_municipios(args.resume_csv)
 
     metrics = {"discovered": 0, "processed": 0, "errors": 0, "heuristic_stops": 0}
 
@@ -347,6 +377,7 @@ async def _run(args: argparse.Namespace) -> None:
             await run_comunidad(
                 args.comunidad, args.min_poblacion, process_city_fn,
                 is_full=lambda: csv_writer.is_full,
+                skip_municipios=skip_municipios,
             )
         else:
             await _process_city_with_pool(args, args.city, csv_writer, pool, metrics)

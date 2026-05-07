@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import gc
+import hashlib
 import logging
 from dataclasses import asdict
 from pathlib import Path
@@ -29,7 +30,7 @@ class StreamingCsvWriter:
     - Llama a gc.collect() cada 20 sectores para mantener la RAM estable.
     """
 
-    def __init__(self, path: str, max_records: int = 0) -> None:
+    def __init__(self, path: str, max_records: int = 0, resume: bool = False) -> None:
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = asyncio.Lock()
@@ -38,10 +39,31 @@ class StreamingCsvWriter:
         self._total_written = 0
         self._max_records = int(max_records or 0)
 
-        # Escribir cabecera al inicio
-        with self._path.open("w", newline="", encoding="utf-8") as fh:
-            writer = csv.DictWriter(fh, fieldnames=FIELDNAMES)
-            writer.writeheader()
+        if resume and self._path.exists():
+            # Modo reanudar: precargar dedup desde filas existentes y abrir append.
+            with self._path.open("r", newline="", encoding="utf-8") as fh:
+                reader = csv.DictReader(fh)
+                for row in reader:
+                    maps_url = (row.get("maps_url") or "").strip()
+                    if maps_url:
+                        self._seen.add(f"url:{normalize_maps_url(maps_url)}")
+                    raw = "|".join([
+                        (row.get("nombre") or "").lower().strip(),
+                        (row.get("direccion") or "").lower().strip(),
+                        (row.get("telefono") or "").lower().strip(),
+                    ])
+                    fallback = hashlib.sha1(raw.encode("utf-8")).hexdigest()
+                    self._seen.add(f"fallback:{fallback}")
+                    self._total_written += 1
+            LOGGER.info(
+                "Resume: precargados %d registros previos en dedup desde %s",
+                self._total_written, self._path,
+            )
+        else:
+            # Escribir cabecera al inicio
+            with self._path.open("w", newline="", encoding="utf-8") as fh:
+                writer = csv.DictWriter(fh, fieldnames=FIELDNAMES)
+                writer.writeheader()
 
     async def write_sector(self, records: List[BusinessRecord]) -> int:
         """

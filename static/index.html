@@ -443,6 +443,43 @@
       }
     }
 
+    async function handleResume(jobId) {
+      const res = await fetch(`/resume/${jobId}`, { method: 'POST' });
+      const data = await res.json();
+      if (data.error) {
+        alert('No se pudo reanudar: ' + data.error);
+        return;
+      }
+      const row = historyBody.querySelector(`tr[data-job-id="${jobId}"]`);
+      if (row) {
+        const statusCell = row.querySelector('.status-cell');
+        if (statusCell) statusCell.innerHTML = STATUS_LABELS.running;
+      }
+      const stream = new EventSource(`/stream/${jobId}`);
+      stream.onmessage = (ev) => {
+        const m = ev.data.match(/valid=(\d+)/);
+        if (m && row) {
+          const validCell = row.querySelector('.valid-cell');
+          if (validCell) validCell.textContent = m[1];
+        }
+      };
+      stream.addEventListener('done', () => {
+        stream.close();
+        loadHistory();
+      });
+    }
+
+    async function handleDelete(jobId) {
+      if (!confirm('¿Borrar esta ejecución del historial? El CSV no se eliminará.')) return;
+      const res = await fetch(`/history/${jobId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.error) {
+        alert('No se pudo borrar: ' + data.error);
+        return;
+      }
+      loadHistory();
+    }
+
     function makeHistoryRow(entry) {
       const tr = document.createElement('tr');
       tr.style.borderTop = '1px solid #2d3148';
@@ -465,13 +502,30 @@
         : `<button disabled title="Sin resultados para analizar"
             style="background:none; border:none; font-size:1.1rem; padding:0 0.3rem; opacity:0.3; cursor:not-allowed;">🔍</button>`;
 
+      const isComunidad = !!(entry.params && entry.params.comunidad);
+      const canResume = isComunidad && ['stopped', 'error', 'partial'].includes(entry.status);
+      const resumeBtn = canResume
+        ? `<button onclick="event.stopPropagation(); handleResume('${entry.job_id}')"
+            title="Reanudar ejecución"
+            style="background:none; border:none; cursor:pointer; font-size:1.1rem; padding:0 0.3rem; opacity:0.8; color:#34d399;"
+            onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.8">▶</button>`
+        : '';
+
+      const canDelete = entry.status !== 'running';
+      const deleteBtn = canDelete
+        ? `<button onclick="event.stopPropagation(); handleDelete('${entry.job_id}')"
+            title="Borrar del historial"
+            style="background:none; border:none; cursor:pointer; font-size:1.1rem; padding:0 0.3rem; opacity:0.7; color:#f87171;"
+            onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.7">✕</button>`
+        : '';
+
       tr.innerHTML = `
         <td style="padding:0.45rem 0.5rem; color:#64748b">${formatTime(entry.started_at)}</td>
         <td style="padding:0.45rem 0.5rem">${entry.city}</td>
         <td style="padding:0.45rem 0.5rem">${entry.category}</td>
         <td class="status-cell" style="padding:0.45rem 0.5rem">${STATUS_LABELS[entry.status] || entry.status}</td>
         <td class="valid-cell" style="padding:0.45rem 0.5rem; text-align:right; color:#f8fafc; font-weight:600">${entry.valid_count ?? '—'}</td>
-        <td style="padding:0.45rem 0.5rem; text-align:center; white-space:nowrap">${folderBtn}${analyzeBtn}</td>
+        <td style="padding:0.45rem 0.5rem; text-align:center; white-space:nowrap">${resumeBtn}${folderBtn}${analyzeBtn}${deleteBtn}</td>
       `;
       return tr;
     }
