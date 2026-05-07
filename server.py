@@ -55,20 +55,36 @@ def _load_history() -> None:
         return
     try:
         entries = json.loads(HISTORY_PATH.read_text(encoding="utf-8"))
-        for entry in entries:
-            jobs[entry["job_id"]] = {
-                "city": entry.get("city", ""),
-                "category": entry.get("category", ""),
-                "started_at": entry.get("started_at", ""),
-                "status": entry.get("status", "done"),
-                "valid_count": entry.get("valid_count", 0),
-                "output": entry.get("output", ""),
-                "params": entry.get("params") or {},
-                "lines": [],
-                "proc": None,
-            }
     except Exception:
-        pass  # fichero corrupto — arrancar sin historial
+        return  # fichero corrupto — arrancar sin historial
+
+    try:
+        comunidades_set = {c.lower() for c in list_comunidades()}
+    except Exception:
+        comunidades_set = set()
+
+    for entry in entries:
+        params = entry.get("params") or {}
+        # Retrocompat: entradas previas a v0.8.2 no guardan params.
+        # Si el campo "city" coincide con una comunidad conocida, deducimos modo comunidad.
+        if not params:
+            city_field = (entry.get("city") or "").strip()
+            if city_field.lower() in comunidades_set:
+                params = {
+                    "comunidad": city_field,
+                    "category": entry.get("category", ""),
+                }
+        jobs[entry["job_id"]] = {
+            "city": entry.get("city", ""),
+            "category": entry.get("category", ""),
+            "started_at": entry.get("started_at", ""),
+            "status": entry.get("status", "done"),
+            "valid_count": entry.get("valid_count", 0),
+            "output": entry.get("output", ""),
+            "params": params,
+            "lines": [],
+            "proc": None,
+        }
 
 
 def _save_history() -> None:
@@ -406,6 +422,7 @@ async def history() -> list:
             "status": j["status"],
             "valid_count": j.get("valid_count", 0),
             "output": j.get("output", ""),
+            "params": j.get("params") or {},
         }
         for jid, j in reversed(list(jobs.items()))
         if j.get("started_at")
